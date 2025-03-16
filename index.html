@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Distributed Chat System</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Chat windows will be dynamically created here -->
+    </div>
+
+    <script>
+        class ChatWindow {
+            constructor(nodeId, container) {
+                this.nodeId = nodeId;
+                this.element = this.createWindow();
+                container.appendChild(this.element);
+                this.messagesElement = this.element.querySelector('.messages');
+                this.setupEventListeners();
+                this.connect();
+            }
+
+            createWindow() {
+                const div = document.createElement('div');
+                div.className = 'chat-window';
+                div.innerHTML = `
+                    <div class="chat-header">
+                        <h2>Node ${this.nodeId}</h2>
+                        <div class="vector-clock"></div>
+                        <div class="status">Connected</div>
+                    </div>
+                    <div class="messages"></div>
+                    <div class="buffer-indicator"></div>
+                    <div class="input-area">
+                        <input type="text" placeholder="Type a message...">
+                        <button>Send</button>
+                    </div>
+                `;
+                return div;
+            }
+
+            setupEventListeners() {
+                const input = this.element.querySelector('input');
+                const button = this.element.querySelector('button');
+
+                const sendMessage = () => {
+                    const content = input.value.trim();
+                    if (content) {
+                        this.sendMessage(content);
+                        input.value = '';
+                    }
+                };
+
+                input.addEventListener('keypress', (e) => {
+                    if (e.key === 'Enter') sendMessage();
+                });
+                button.addEventListener('click', sendMessage);
+            }
+
+            connect() {
+                this.ws = new WebSocket(`ws://127.0.0.1:8000/ws/${this.nodeId}`);
+                
+                this.ws.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'message') {
+                        this.displayMessage(data);
+                    } else if (data.type === 'vector_clock') {
+                        this.updateVectorClock(data.clock);
+                    } else if (data.type === 'buffer') {
+                        this.updateBuffer(data.count);
+                    }
+                };
+
+                this.ws.onclose = () => {
+                    this.element.querySelector('.status').textContent = 'Disconnected';
+                    this.element.querySelector('.status').style.color = '#dc3545';
+                    setTimeout(() => this.connect(), 1000);
+                };
+            }
+
+            sendMessage(content) {
+                if (this.ws.readyState === WebSocket.OPEN) {
+                    this.ws.send(JSON.stringify({
+                        type: 'message',
+                        content: content
+                    }));
+                }
+            }
+
+            displayMessage(data) {
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${data.sender_id === this.nodeId ? 'sent' : 'received'}`;
+                messageDiv.innerHTML = `
+                    <div class="sender">Node ${data.sender_id}</div>
+                    <div class="content">${data.content}</div>
+                    <div class="timestamp">[${Object.values(data.timestamp).join(',')}]</div>
+                `;
+                this.messagesElement.appendChild(messageDiv);
+                this.messagesElement.scrollTop = this.messagesElement.scrollHeight;
+            }
+
+            updateVectorClock(clock) {
+                this.element.querySelector('.vector-clock').textContent = 
+                    `Vector Clock: [${Object.values(clock).join(',')}]`;
+            }
+
+            updateBuffer(count) {
+                const bufferIndicator = this.element.querySelector('.buffer-indicator');
+                bufferIndicator.textContent = count > 0 ? 
+                    `Messages in buffer: ${count}` : '';
+            }
+        }
+
+        // Create chat windows when the page loads
+        document.addEventListener('DOMContentLoaded', () => {
+            const container = document.querySelector('.container');
+            for (let i = 0; i < 3; i++) {
+                new ChatWindow(String(i), container);
+            }
+        });
+    </script>
+</body>
+</html> 
